@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
     QWidget,
+    QStyleFactory
 )
 
 from .apng import APNGProcessor, get_directories_with_files
@@ -521,6 +522,24 @@ def load_stylesheet(widget):
     stylesheet = stylesheet.replace("{icons_path}", icons_path)
 
     widget.setStyleSheet(stylesheet)
+
+
+def start():
+    """Simple entry point to start the full app UI"""
+    # need this for some reason, otherwise QUiLoader freezes app
+    test = QUiLoader()
+
+    app = QApplication(sys.argv)
+    app.setStyle(QStyleFactory.create("windows"))
+
+    # ICON
+    icon_path = os.path.join(PACKAGE, "ui", "icons", "app.png")
+    icon = QIcon(icon_path)
+    app.setWindowIcon(icon)
+
+    window = ApngConverter()
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
