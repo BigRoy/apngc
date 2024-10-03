@@ -189,12 +189,9 @@ def assemble_apng(out_filename, in_filename, framerate, loops):
     )
     LOGGER.debug(f"APNGASM Command: {apngasm_cmd}")
     subprocess.call(apngasm_cmd, shell=True)
+    
 
-
-class APNGProcessor(QObject):
-    progress_changed = Signal(int)  # THIS RETURNS INCREMENTAL PROGRESS
-    absolute_progress_changed = Signal(int)  # THIS RETURNS AN ABSOLUTE 0-100
-
+class APNGProcessorHeadless:
     def __init__(self, seq_dir, settings):
         super().__init__()
 
@@ -202,49 +199,42 @@ class APNGProcessor(QObject):
         self.settings = settings
         self.temp_resized_seq = None
         self.files = []
-        self.absolute_progress = 0
         self.temp_hold_file = None
 
-    def update_progress(self, progress):
-        self.absolute_progress += progress
-        self.absolute_progress_changed.emit(self.absolute_progress)
-        self.progress_changed.emit(progress)
-
-    def process(self):
-        self.update_progress(0)
-
+    def iter_process(self):
+        yield 0
         self.files = self._get_image_files()
         if len(self.files) < 2:
             LOGGER.error(
                 f"Less than 2 files detected in {self.seq_dir}, skipping..."
             )
             raise Exception("No sequence!")
-            # print(
-            #     "No sequence detected in {}, skipping...".format(self.seq_dir)
-            # )
-            # self.update_progress(100)
-            # return
 
         start_frame = self._get_start_frame(self.files[0])
         basename = self._get_basename(start_frame)
         self.seq = self._determine_sequence(basename, self.files)
-        self.update_progress(20)
+        yield 20
 
         if self.settings.get("hold"):
             LOGGER.debug(f"Applying hold of {self.settings.get('hold')} ms")
             self._hold()
-        self.update_progress(20)
+        yield 20
 
         out_filename = self._assemble_apng(self.seq, basename)
-        self.update_progress(20)
+        yield 20
 
         if self.settings.get("optimize"):
             self._optimize_apng(out_filename)
-        self.update_progress(20)
+        yield 20
 
         self._cleanup_temp_files()
-        self.update_progress(20)
+        yield 20
         LOGGER.info(f"Finished processing {self.seq_dir}")
+
+    def process(self):
+        # Run all steps
+        for _progress in self.iter_process():
+            pass
 
     def _hold(self, index=-1):
         # handle last delay
@@ -261,9 +251,9 @@ class APNGProcessor(QObject):
         extensions = ["png"]
         return sorted(
             [
-                fn
-                for fn in os.listdir(self.seq_dir)
-                if any(fn.endswith(ext) for ext in extensions)
+                filename
+                for filename in os.listdir(self.seq_dir)
+                if any(filename.endswith(ext) for ext in extensions)
             ]
         )
 
@@ -321,6 +311,26 @@ class APNGProcessor(QObject):
             os.remove(self.temp_hold_file)
         if self.temp_resized_seq:
             shutil.rmtree(os.path.dirname(self.temp_resized_seq))
+
+
+class APNGProcessor(QObject):
+    """Qt-based APNG processor"""
+    progress_changed = Signal(int)  # THIS RETURNS INCREMENTAL PROGRESS
+    absolute_progress_changed = Signal(int)  # THIS RETURNS AN ABSOLUTE 0-100
+
+    def __init__(self, seq_dir, settings):
+        super().__init__()
+        self.absolute_progress = 0
+        self._headless_processor = APNGProcessorHeadless(seq_dir, settings)
+
+    def process(self):
+        for progress in self._headless_processor.iter_process():
+            self.update_progress(progress)
+
+    def update_progress(self, progress):
+        self.absolute_progress += progress
+        self.absolute_progress_changed.emit(self.absolute_progress)
+        self.progress_changed.emit(progress)
 
 
 def get_directories_with_files(directory):
